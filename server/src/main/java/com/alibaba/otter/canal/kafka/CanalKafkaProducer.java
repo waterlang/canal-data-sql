@@ -229,7 +229,7 @@ public class CanalKafkaProducer implements CanalMQProducer {
                     try {
                         CanalEntry.RowChange rowChange = CanalEntry.RowChange.parseFrom(k.getStoreValue());
                         sql = rowChange == null ? null : rowChange.getSql();
-                        if(StringUtils.isNotBlank(sql) && sql.getBytes().length > 2000){
+                        if(StringUtils.isNotBlank(sql) && sql.length() > 2000){
                             sql = sql.substring(0,2000);
                         }
 //                        logger.warn("----sql:{}", sql);
