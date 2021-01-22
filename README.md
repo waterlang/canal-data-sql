@@ -21,6 +21,7 @@ git 下载源码
 下载已经打好包的文件，然后参考canal官方文档配置相关的配置信息
 链接：
  https://github.com/waterlang/canal-data-sql/releases/tag/v.1.1.4
+ 
 三.收到的消息例子:
 ```
 {
