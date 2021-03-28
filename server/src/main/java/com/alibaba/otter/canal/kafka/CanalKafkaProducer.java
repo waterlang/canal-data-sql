@@ -22,6 +22,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 
@@ -39,7 +40,7 @@ public class CanalKafkaProducer implements CanalMQProducer {
     private Producer<String, String> producer2;                                                 // 用于扁平message的数据投递
     private MQProperties kafkaProperties;
 
-    private String sql = null;
+    private Map<String,String> sqlMap = new ConcurrentHashMap<>();
 
     @Override
     public void init(MQProperties kafkaProperties) {
@@ -105,7 +106,7 @@ public class CanalKafkaProducer implements CanalMQProducer {
     @Override
     public void send(MQProperties.CanalDestination canalDestination, Message message, Callback callback) {
         try {
-            //            logger.warn("-----msg :{}",message);
+//            logger.warn("-----msg，destination:{}  |:{}",canalDestination.getCanalDestination(),message);
             if (!StringUtils.isEmpty(canalDestination.getDynamicTopic())) {
                 // 动态topic
                 Map<String, Message> messageMap = MQMessageUtils.messageTopics(message,
@@ -156,7 +157,7 @@ public class CanalKafkaProducer implements CanalMQProducer {
         } else {
             // 发送扁平数据json
 
-            setSql(message); // 系统默认是扁平数据json，我们只处理这块的逻辑
+            setSql(canalDestination,message); // 系统默认是扁平数据json，我们只处理这块的逻辑
 
             List<FlatMessage> flatMessages = MQMessageUtils.messageConverter(message);
 //            logger.warn("---flatMessages :{}", JSON.toJSONString(flatMessages));
@@ -169,7 +170,7 @@ public class CanalKafkaProducer implements CanalMQProducer {
                         continue;
                     }
 
-                    flatMessage.setSql(sql);
+                    flatMessage.setSql(sqlMap.get(canalDestination.getCanalDestination()));
 
                     if (canalDestination.getPartitionHash() != null && !canalDestination.getPartitionHash().isEmpty()) {
                         FlatMessage[] partitionFlatMessage = MQMessageUtils.messagePartition(flatMessage,
@@ -201,7 +202,7 @@ public class CanalKafkaProducer implements CanalMQProducer {
                     produce(topicName, records, true);
                     records.clear();
                 }
-                clearSql(message);
+                clearSql(canalDestination,message);
             }
         }
     }
@@ -210,7 +211,7 @@ public class CanalKafkaProducer implements CanalMQProducer {
     /**
      * @param message
      */
-    private void setSql(Message message) {
+    private void setSql(MQProperties.CanalDestination canalDestination,Message message) {
         List<CanalEntry.Entry> entries = message.getEntries();
         if (entries != null) {
             for (CanalEntry.Entry k : entries) {
@@ -218,7 +219,7 @@ public class CanalKafkaProducer implements CanalMQProducer {
                         == CanalEntry.EntryType.TRANSACTIONBEGIN_VALUE;
 
                 if (isTransActionBegin) {
-                    sql = null;
+                    sqlMap.put(canalDestination.getCanalDestination(),"");
                     continue;
                 }
 
@@ -227,12 +228,14 @@ public class CanalKafkaProducer implements CanalMQProducer {
                         k.getHeader().getEventType().getNumber() == CanalEntry.EventType.QUERY_VALUE;
                 if (isRowData && isQueryEventType) { //query event
                     try {
+                        String sql;
                         CanalEntry.RowChange rowChange = CanalEntry.RowChange.parseFrom(k.getStoreValue());
                         sql = rowChange == null ? null : rowChange.getSql();
                         if(StringUtils.isNotBlank(sql) && sql.length() > 2000){
                             sql = sql.substring(0,2000);
                         }
 //                        logger.warn("----sql:{}", sql);
+                        sqlMap.put(canalDestination.getCanalDestination(), sql == null ? "" : sql);
                         break;
                     } catch (InvalidProtocolBufferException e) {
                         logger.warn("e,", e);
@@ -244,7 +247,7 @@ public class CanalKafkaProducer implements CanalMQProducer {
     }
 
 
-    private void clearSql(Message message) {
+    private void clearSql(MQProperties.CanalDestination canalDestination,Message message) {
         List<CanalEntry.Entry> entries = message.getEntries();
         if (entries != null) {
             for (CanalEntry.Entry k : entries) {
@@ -252,7 +255,7 @@ public class CanalKafkaProducer implements CanalMQProducer {
                         == CanalEntry.EntryType.TRANSACTIONEND_VALUE;
 
                 if (isTransActionEnd) {
-                    sql = null;
+                    sqlMap.put(canalDestination.getCanalDestination(),"");
                     break;
                 }
             }
