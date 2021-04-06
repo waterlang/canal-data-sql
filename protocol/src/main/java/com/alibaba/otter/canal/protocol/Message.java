@@ -2,7 +2,10 @@ package com.alibaba.otter.canal.protocol;
 
 import java.io.Serializable;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import org.apache.commons.lang.builder.ToStringBuilder;
 
@@ -23,6 +26,17 @@ public class Message implements Serializable {
     // https://github.com/alibaba/canal/issues/726
     private boolean                raw              = true;
     private List<ByteString>       rawEntries       = new ArrayList<ByteString>();
+
+    private Map<Entry,String> rawEntriesMap = new LinkedHashMap<>();
+
+
+    public Map<Entry, String> getRawEntriesMap() {
+        return rawEntriesMap;
+    }
+
+    public void setRawEntriesMap(Map<Entry, String> rawEntriesMap) {
+        this.rawEntriesMap = rawEntriesMap;
+    }
 
     public Message(long id, List<Entry> entries){
         this.id = id;

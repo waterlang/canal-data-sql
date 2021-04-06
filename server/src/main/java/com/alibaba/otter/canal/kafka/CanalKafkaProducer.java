@@ -40,7 +40,6 @@ public class CanalKafkaProducer implements CanalMQProducer {
     private Producer<String, String> producer2;                                                 // 用于扁平message的数据投递
     private MQProperties kafkaProperties;
 
-    private Map<String,String> sqlMap = new ConcurrentHashMap<>();
 
     @Override
     public void init(MQProperties kafkaProperties) {
@@ -156,9 +155,6 @@ public class CanalKafkaProducer implements CanalMQProducer {
             produce(topicName, records, false);
         } else {
             // 发送扁平数据json
-
-            setSql(canalDestination,message); // 系统默认是扁平数据json，我们只处理这块的逻辑
-
             List<FlatMessage> flatMessages = MQMessageUtils.messageConverter(message);
 //            logger.warn("---flatMessages :{}", JSON.toJSONString(flatMessages));
 
@@ -170,7 +166,6 @@ public class CanalKafkaProducer implements CanalMQProducer {
                         continue;
                     }
 
-                    flatMessage.setSql(sqlMap.get(canalDestination.getCanalDestination()));
 
                     if (canalDestination.getPartitionHash() != null && !canalDestination.getPartitionHash().isEmpty()) {
                         FlatMessage[] partitionFlatMessage = MQMessageUtils.messagePartition(flatMessage,
@@ -202,65 +197,15 @@ public class CanalKafkaProducer implements CanalMQProducer {
                     produce(topicName, records, true);
                     records.clear();
                 }
-                clearSql(canalDestination,message);
             }
         }
     }
 
 
-    /**
-     * @param message
-     */
-    private void setSql(MQProperties.CanalDestination canalDestination,Message message) {
-        List<CanalEntry.Entry> entries = message.getEntries();
-        if (entries != null) {
-            for (CanalEntry.Entry k : entries) {
-                boolean isTransActionBegin = k.getEntryType().getNumber()
-                        == CanalEntry.EntryType.TRANSACTIONBEGIN_VALUE;
-
-                if (isTransActionBegin) {
-                    sqlMap.put(canalDestination.getCanalDestination(),"");
-                    continue;
-                }
-
-                boolean isRowData = k.getEntryType().getNumber() == CanalEntry.EntryType.ROWDATA_VALUE;
-                boolean isQueryEventType =
-                        k.getHeader().getEventType().getNumber() == CanalEntry.EventType.QUERY_VALUE;
-                if (isRowData && isQueryEventType) { //query event
-                    try {
-                        String sql;
-                        CanalEntry.RowChange rowChange = CanalEntry.RowChange.parseFrom(k.getStoreValue());
-                        sql = rowChange == null ? null : rowChange.getSql();
-                        if(StringUtils.isNotBlank(sql) && sql.length() > 2000){
-                            sql = sql.substring(0,2000);
-                        }
-//                        logger.warn("----sql:{}", sql);
-                        sqlMap.put(canalDestination.getCanalDestination(), sql == null ? "" : sql);
-                        break;
-                    } catch (InvalidProtocolBufferException e) {
-                        logger.warn("e,", e);
-                    }
-                }
-            }
-        }
-
-    }
 
 
-    private void clearSql(MQProperties.CanalDestination canalDestination,Message message) {
-        List<CanalEntry.Entry> entries = message.getEntries();
-        if (entries != null) {
-            for (CanalEntry.Entry k : entries) {
-                boolean isTransActionEnd = k.getEntryType().getNumber()
-                        == CanalEntry.EntryType.TRANSACTIONEND_VALUE;
 
-                if (isTransActionEnd) {
-                    sqlMap.put(canalDestination.getCanalDestination(),"");
-                    break;
-                }
-            }
-        }
-    }
+
 
     private void produce(String topicName, List<ProducerRecord> records, boolean flatMessage) {
 

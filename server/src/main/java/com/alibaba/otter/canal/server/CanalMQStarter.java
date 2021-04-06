@@ -1,24 +1,28 @@
 package com.alibaba.otter.canal.server;
 
+import com.alibaba.otter.canal.common.MQProperties;
+import com.alibaba.otter.canal.instance.core.CanalInstance;
+import com.alibaba.otter.canal.instance.core.CanalMQConfig;
+import com.alibaba.otter.canal.protocol.CanalEntry;
+import com.alibaba.otter.canal.protocol.ClientIdentity;
+import com.alibaba.otter.canal.protocol.Message;
+import com.alibaba.otter.canal.server.embedded.CanalServerWithEmbedded;
+import com.alibaba.otter.canal.spi.CanalMQProducer;
+import com.google.protobuf.ByteString;
+import com.google.protobuf.InvalidProtocolBufferException;
+import org.apache.commons.lang.StringUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
+
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-
-import org.apache.commons.lang.StringUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.slf4j.MDC;
-
-import com.alibaba.otter.canal.common.MQProperties;
-import com.alibaba.otter.canal.instance.core.CanalInstance;
-import com.alibaba.otter.canal.instance.core.CanalMQConfig;
-import com.alibaba.otter.canal.protocol.ClientIdentity;
-import com.alibaba.otter.canal.protocol.Message;
-import com.alibaba.otter.canal.server.embedded.CanalServerWithEmbedded;
-import com.alibaba.otter.canal.spi.CanalMQProducer;
 
 public class CanalMQStarter {
 
@@ -37,6 +41,12 @@ public class CanalMQStarter {
     private Map<String, CanalMQRunnable> canalMQWorks   = new ConcurrentHashMap<>();
 
     private static Thread                shutdownThread = null;
+
+    /**
+     * 每个实例的对应的全局sql ，有可能这一批获取到的message里没有queryEvent,那么我们就需要从上次获取的message里的queryEvent
+     * 里取，该Map就是存的上次的queryEvent里的sql
+     */
+    private Map<String,String> instanceSqlMap = new ConcurrentHashMap<>();
 
     public CanalMQStarter(CanalMQProducer canalMQProducer){
         this.canalMQProducer = canalMQProducer;
@@ -129,6 +139,7 @@ public class CanalMQStarter {
     }
 
     private void worker(String destination, AtomicBoolean destinationRunning) {
+        String sql = null;
         while (!running || !destinationRunning.get()) {
             try {
                 Thread.sleep(100);
@@ -178,6 +189,9 @@ public class CanalMQStarter {
 
                     final long batchId = message.getId();
                     try {
+                        //hand message
+                        updateSql(message,destination,batchId);
+
                         int size = message.isRaw() ? message.getRawEntries().size() : message.getEntries().size();
                         if (batchId != -1 && size != 0) {
                             canalMQProducer.send(canalDestination, message, new CanalMQProducer.Callback() {
@@ -210,6 +224,69 @@ public class CanalMQStarter {
         }
     }
 
+
+    private void updateSql(Message message,String destination,long batchId) {
+        List<CanalEntry.Entry> entrys ;
+        String sql = null;
+        if(message.isRaw()){
+            List<ByteString> rawEntries = message.getRawEntries();
+            entrys = new ArrayList<>(rawEntries.size());
+            for (ByteString byteString : rawEntries) {
+                CanalEntry.Entry entry ;
+                try {
+                    entry = CanalEntry.Entry.parseFrom(byteString);
+                } catch (InvalidProtocolBufferException e) {
+                    throw new RuntimeException(e);
+                }
+                entrys.add(entry);
+            }
+        }else {
+            entrys = message.getEntries();
+        }
+
+        for (CanalEntry.Entry entry : entrys) {
+            if (entry.getEntryType() == CanalEntry.EntryType.TRANSACTIONBEGIN
+                    || entry.getEntryType() == CanalEntry.EntryType.TRANSACTIONEND) {
+                sql = null;
+                instanceSqlMap.remove(destination);
+                continue;
+            }
+
+            CanalEntry.RowChange rowChange ;
+            try {
+                rowChange = CanalEntry.RowChange.parseFrom(entry.getStoreValue());
+            }catch (Exception e){
+                throw  new RuntimeException(e);
+            }
+
+            boolean isRowData = entry.getEntryType().getNumber() == CanalEntry.EntryType.ROWDATA_VALUE;
+            boolean isQueryEventType =
+                    entry.getHeader().getEventType().getNumber() == CanalEntry.EventType.QUERY_VALUE;
+
+
+            if(isRowData && isQueryEventType ){ //queryEvent
+                sql = rowChange.getSql();
+                if (sql.getBytes().length > 2048) {
+                    sql = sql.substring(0, 2048);
+                }
+                instanceSqlMap.put(destination,sql);
+            }
+
+            if(StringUtils.isEmpty(sql)){
+                sql = instanceSqlMap.get(destination);
+            }
+
+            if(StringUtils.isEmpty(sql)){
+                logger.warn("destination :{} ,batchId:{} cant get sql" ,destination,batchId);
+            }
+
+            message.getRawEntriesMap().put(entry,sql);
+
+        }
+
+    }
+
+
     private class CanalMQRunnable implements Runnable {
 
         private String destination;
@@ -230,3 +307,4 @@ public class CanalMQStarter {
         }
     }
 }
+

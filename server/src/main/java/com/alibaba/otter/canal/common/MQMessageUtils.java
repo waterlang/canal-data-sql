@@ -1,15 +1,5 @@
 package com.alibaba.otter.canal.common;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-
-import org.apache.commons.lang.StringUtils;
-
 import com.alibaba.otter.canal.filter.aviater.AviaterRegexFilter;
 import com.alibaba.otter.canal.protocol.CanalEntry;
 import com.alibaba.otter.canal.protocol.CanalEntry.Entry;
@@ -22,6 +12,17 @@ import com.google.common.collect.MapMaker;
 import com.google.common.collect.MigrateMap;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.InvalidProtocolBufferException;
+import org.apache.commons.lang.StringUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * process MQ Message utils
@@ -29,6 +30,8 @@ import com.google.protobuf.InvalidProtocolBufferException;
  * @author agapple 2018年12月11日 下午1:28:32
  */
 public class MQMessageUtils {
+    private static final Logger logger = LoggerFactory.getLogger(MQMessageUtils.class);
+
 
     @SuppressWarnings("deprecation")
     private static Map<String, List<PartitionData>>    partitionDatas    = MigrateMap.makeComputingMap(new MapMaker().softValues(),
@@ -287,14 +290,9 @@ public class MQMessageUtils {
             }
 
             List<FlatMessage> flatMessages = new ArrayList<>();
-            List<CanalEntry.Entry> entrys = null;
+            List<CanalEntry.Entry> entrys ;
             if (message.isRaw()) {
-                List<ByteString> rawEntries = message.getRawEntries();
-                entrys = new ArrayList<CanalEntry.Entry>(rawEntries.size());
-                for (ByteString byteString : rawEntries) {
-                    CanalEntry.Entry entry = CanalEntry.Entry.parseFrom(byteString);
-                    entrys.add(entry);
-                }
+                entrys = new ArrayList<>(message.getRawEntriesMap().keySet());
             } else {
                 entrys = message.getEntries();
             }
@@ -323,7 +321,9 @@ public class MQMessageUtils {
                 flatMessage.setType(eventType.toString());
                 flatMessage.setEs(entry.getHeader().getExecuteTime());
                 flatMessage.setTs(System.currentTimeMillis());
-                flatMessage.setSql(rowChange.getSql());
+                flatMessage.setSql(message.getRawEntriesMap().get(entry));
+                // flatMessage.setSql(rowChange.getSql());
+
 
                 if (!rowChange.getIsDdl()) {
                     Map<String, Integer> sqlType = new LinkedHashMap<>();
