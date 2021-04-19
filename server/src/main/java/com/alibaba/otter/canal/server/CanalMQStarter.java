@@ -266,7 +266,7 @@ public class CanalMQStarter {
 
             if(isRowData && isQueryEventType ){ //queryEvent
                 sql = rowChange.getSql();
-                if (sql.getBytes().length > 2048) {
+                if (sql.length() > 2048) {
                     sql = sql.substring(0, 2048);
                 }
                 instanceSqlMap.put(destination,sql);
@@ -279,9 +279,7 @@ public class CanalMQStarter {
             if(StringUtils.isEmpty(sql)){
                 logger.warn("destination :{} ,batchId:{} cant get sql" ,destination,batchId);
             }
-
             message.getRawEntriesMap().put(entry,sql);
-
         }
 
     }
