@@ -63,4 +63,4 @@ git 下载源码
 }
 ```
 
-我们能看到每个数据的变更都绑定了sql.我们可以从sql提取出userId，traceId
+我们能看到每个数据的变更都绑定了sql.我们可以从sql提取出userId为123 ，traceId为ff44cb60bd074b659c7c7087712b8f56
